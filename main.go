@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -17,6 +19,15 @@ import (
 
 var key = "TODO_PORT"
 var webDir = "./web"
+var DB *sql.DB
+
+type Task struct {
+	Id      string `json:"id"`
+	Date    string `json:"date"`
+	Title   string `json:"title" binding:"required"`
+	Comment string `json:"comment"`
+	Repeat  string `json:"repeat"`
+}
 
 func checkDatabse() {
 	appPath, err := os.Executable()
@@ -111,10 +122,28 @@ func NextDate(now time.Time, date string, repeat string) (string, error) {
 		}
 		newDateStr := newDate.Format("20060102")
 		return newDateStr, nil
-	} else {
+	} else if repeat != "d" {
 		fmt.Println("Error:", err)
 		return "", errors.New("некорректный формат повторения")
+	} else {
+		return "", errors.New("некорректный формат повторения")
 	}
+}
+
+func AddTask(date string, title string, comment string, repeat string) (int64, error) {
+	res, err := DB.Exec("INSERT INTO scheduler (date, title, comment, repeat) VALUES (:date, :title, :comment, :repeat)",
+		sql.Named("date", date),
+		sql.Named("title", title),
+		sql.Named("comment", comment),
+		sql.Named("repeat", repeat))
+	if err != nil {
+		return 0, errors.New("ошибка записи в БД")
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 func nextDateHandler(w http.ResponseWriter, r *http.Request) {
@@ -136,13 +165,109 @@ func nextDateHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, text)
 }
 
+func AddTaskHandler(w http.ResponseWriter, r *http.Request) {
+	var task Task
+	var buf bytes.Buffer
+
+	_, err := buf.ReadFrom(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err = json.Unmarshal(buf.Bytes(), &task); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if task.Repeat != "" {
+		date, err := NextDate(time.Now(), task.Date, task.Repeat)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		task.Date = date
+	}
+
+	if task.Date == "" {
+		dateNow := time.Now()
+		task.Date = dateNow.Format("20060102")
+	} else {
+		dateNow, err := time.Parse("20060102", task.Date)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if dateNow.Before(time.Now()) {
+			if task.Repeat == "" {
+				date := time.Now()
+				task.Date = date.Format("20060102")
+			} else {
+				date, err := NextDate(time.Now(), r.PostFormValue("date"), task.Repeat)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				task.Date = date
+			}
+		}
+
+	}
+
+	if task.Title == "" {
+		http.Error(w, "название задачи обязательно для заполнения", http.StatusBadRequest)
+		return
+	}
+
+	id, err := AddTask(task.Date, task.Title, task.Comment, task.Repeat)
+	fmt.Println(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	}
+	resp, err := json.Marshal(map[string]any{"id": id})
+	fmt.Println(resp)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	fmt.Println(resp)
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write(resp)
+
+}
+
+func taskHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		fmt.Fprintln(w, "GET запрос обработан")
+	case http.MethodPost:
+		fmt.Println("POST запрос обработан")
+		AddTaskHandler(w, r)
+	case http.MethodDelete:
+		fmt.Fprintln(w, "DELETE запрос обработан")
+	default:
+		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+	}
+}
+
 func main() {
-	checkDatabse()
+	//checkDatabse()
+
+	db, err := sql.Open("sqlite", "scheduler.db")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	DB = db
+	defer db.Close()
+
 	http.Handle("/", http.FileServer(http.Dir(webDir)))
 	http.Handle("/css/style.css", http.FileServer(http.Dir(webDir)))
 	http.Handle("/js/scripts.min.js", http.FileServer(http.Dir(webDir)))
 	http.Handle("/favicon.ico", http.FileServer(http.Dir(webDir)))
 	http.HandleFunc("/api/nextdate", nextDateHandler)
+	http.HandleFunc("/api/task", taskHandler)
 
 	if value, exists := os.LookupEnv(key); exists {
 		if err := http.ListenAndServe(value, nil); err != nil {

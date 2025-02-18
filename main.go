@@ -116,7 +116,8 @@ func NextDate(now time.Time, date string, repeat string) (string, error) {
 		if dayNumber > 400 {
 			return "", errors.New("максимально допустимое число днй равно 400")
 		}
-		newDate := t.AddDate(0, 0, dayNumber)
+		//newDate := t.AddDate(0, 0, dayNumber)
+		var newDate time.Time
 		for newDate.Before(now) {
 			newDate = newDate.AddDate(0, 0, dayNumber)
 		}
@@ -146,6 +147,51 @@ func AddTask(date string, title string, comment string, repeat string) (int64, e
 	return id, nil
 }
 
+func GetTasks() ([]Task, error) {
+	rows, err := DB.Query("SELECT id, date, title, comment, repeat FROM scheduler")
+	if err != nil {
+		log.Println(err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tasks []Task
+	for rows.Next() {
+		task := Task{}
+
+		err := rows.Scan(&task.Id, &task.Date, &task.Title, &task.Comment, &task.Repeat)
+		if err != nil {
+			log.Println(err)
+			return nil, err
+		}
+
+		tasks = append(tasks, task)
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Println(err)
+		return nil, err
+	}
+	return tasks, nil
+}
+
+func getTasksHandler(w http.ResponseWriter, r *http.Request) {
+	tasks, err := GetTasks()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	fmt.Println(map[string]any{"tasks": tasks})
+	resp, err := json.Marshal(map[string]any{"tasks": tasks})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(resp)
+}
+
 func nextDateHandler(w http.ResponseWriter, r *http.Request) {
 	now := r.FormValue("now")
 	timeNow, err := time.Parse("20060102", now)
@@ -171,19 +217,25 @@ func AddTaskHandler(w http.ResponseWriter, r *http.Request) {
 
 	_, err := buf.ReadFrom(r.Body)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
 		return
 	}
+	defer r.Body.Close()
 
 	if err = json.Unmarshal(buf.Bytes(), &task); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
 		return
 	}
 
+	if task.Title == "" {
+		http.Error(w, errorResponse("название задачи обязательно для заполнения"), http.StatusBadRequest)
+		return
+	}
+	fmt.Println("первая дата", task.Date)
 	if task.Repeat != "" {
 		date, err := NextDate(time.Now(), task.Date, task.Repeat)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
 			return
 		}
 		task.Date = date
@@ -193,9 +245,11 @@ func AddTaskHandler(w http.ResponseWriter, r *http.Request) {
 		dateNow := time.Now()
 		task.Date = dateNow.Format("20060102")
 	} else {
+		fmt.Println("дата", task.Date)
 		dateNow, err := time.Parse("20060102", task.Date)
+		fmt.Println("дата после преобразования", dateNow)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, errorResponse("некорректный формат даты"), http.StatusBadRequest)
 			return
 		}
 		if dateNow.Before(time.Now()) {
@@ -203,9 +257,9 @@ func AddTaskHandler(w http.ResponseWriter, r *http.Request) {
 				date := time.Now()
 				task.Date = date.Format("20060102")
 			} else {
-				date, err := NextDate(time.Now(), r.PostFormValue("date"), task.Repeat)
+				date, err := NextDate(time.Now(), task.Date, task.Repeat)
 				if err != nil {
-					http.Error(w, err.Error(), http.StatusBadRequest)
+					http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
 					return
 				}
 				task.Date = date
@@ -213,24 +267,17 @@ func AddTaskHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 	}
-
-	if task.Title == "" {
-		http.Error(w, "название задачи обязательно для заполнения", http.StatusBadRequest)
-		return
-	}
-
+	fmt.Println("таск дэйт", task.Date)
 	id, err := AddTask(task.Date, task.Title, task.Comment, task.Repeat)
-	fmt.Println(id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, errorResponse(err.Error()), http.StatusInternalServerError)
+		return
 	}
 	resp, err := json.Marshal(map[string]any{"id": id})
-	fmt.Println(resp)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, errorResponse(err.Error()), http.StatusInternalServerError)
 		return
 	}
-	fmt.Println(resp)
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(http.StatusOK)
 	w.Write(resp)
@@ -240,15 +287,19 @@ func AddTaskHandler(w http.ResponseWriter, r *http.Request) {
 func taskHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		fmt.Fprintln(w, "GET запрос обработан")
+		getTasksHandler(w, r)
 	case http.MethodPost:
-		fmt.Println("POST запрос обработан")
 		AddTaskHandler(w, r)
 	case http.MethodDelete:
 		fmt.Fprintln(w, "DELETE запрос обработан")
 	default:
 		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
 	}
+}
+
+func errorResponse(text string) string {
+	message, _ := json.Marshal(map[string]any{"error": text})
+	return string(message)
 }
 
 func main() {

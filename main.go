@@ -79,21 +79,10 @@ func NextDate(now time.Time, date string, repeat string) (string, error) {
 	}
 
 	if repeat == "y" {
-		if now.Year() > t.Year() {
-			newDate := time.Date(
-				now.Year(),
-				t.Month(),
-				t.Day(),
-				t.Hour(),
-				t.Minute(),
-				t.Second(),
-				t.Nanosecond(),
-				t.Location(),
-			)
-			newDateStr := newDate.Format("20060102")
-			return newDateStr, nil
-		}
 		newDate := t.AddDate(1, 0, 0)
+		for newDate.Format("20060102") <= now.Format("20060102") {
+			newDate = newDate.AddDate(1, 0, 0)
+		}
 		newDateStr := newDate.Format("20060102")
 		return newDateStr, nil
 	}
@@ -105,8 +94,6 @@ func NextDate(now time.Time, date string, repeat string) (string, error) {
 
 	letter := parts[0]
 	dayNumber, err := strconv.Atoi(parts[1])
-	fmt.Println("Буква:", letter)
-	fmt.Println("Число:", dayNumber)
 	if err != nil {
 		fmt.Println("Ошибка преобразования:", err)
 		return "", errors.New("ошибка преобразования")
@@ -116,16 +103,12 @@ func NextDate(now time.Time, date string, repeat string) (string, error) {
 		if dayNumber > 400 {
 			return "", errors.New("максимально допустимое число днй равно 400")
 		}
-		//newDate := t.AddDate(0, 0, dayNumber)
-		var newDate time.Time
-		for newDate.Before(now) {
+		newDate := t.AddDate(0, 0, dayNumber)
+		for newDate.Format("20060102") <= now.Format("20060102") {
 			newDate = newDate.AddDate(0, 0, dayNumber)
 		}
 		newDateStr := newDate.Format("20060102")
 		return newDateStr, nil
-	} else if repeat != "d" {
-		fmt.Println("Error:", err)
-		return "", errors.New("некорректный формат повторения")
 	} else {
 		return "", errors.New("некорректный формат повторения")
 	}
@@ -231,28 +214,17 @@ func AddTaskHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, errorResponse("название задачи обязательно для заполнения"), http.StatusBadRequest)
 		return
 	}
-	fmt.Println("первая дата", task.Date)
-	if task.Repeat != "" {
-		date, err := NextDate(time.Now(), task.Date, task.Repeat)
-		if err != nil {
-			http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
-			return
-		}
-		task.Date = date
-	}
 
 	if task.Date == "" {
 		dateNow := time.Now()
 		task.Date = dateNow.Format("20060102")
 	} else {
-		fmt.Println("дата", task.Date)
 		dateNow, err := time.Parse("20060102", task.Date)
-		fmt.Println("дата после преобразования", dateNow)
 		if err != nil {
 			http.Error(w, errorResponse("некорректный формат даты"), http.StatusBadRequest)
 			return
 		}
-		if dateNow.Before(time.Now()) {
+		if dateNow.Format("20060102") < time.Now().Format("20060102") {
 			if task.Repeat == "" {
 				date := time.Now()
 				task.Date = date.Format("20060102")
@@ -265,7 +237,6 @@ func AddTaskHandler(w http.ResponseWriter, r *http.Request) {
 				task.Date = date
 			}
 		}
-
 	}
 	fmt.Println("таск дэйт", task.Date)
 	id, err := AddTask(task.Date, task.Title, task.Comment, task.Repeat)
@@ -331,5 +302,4 @@ func main() {
 			return
 		}
 	}
-
 }

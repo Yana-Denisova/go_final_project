@@ -130,8 +130,30 @@ func AddTask(date string, title string, comment string, repeat string) (int64, e
 	return id, nil
 }
 
+func GetTaskById(id int) (Task, error) {
+	var task Task
+	row := DB.QueryRow("SELECT id, date, title, comment, repeat FROM scheduler WHERE id = :id", sql.Named("id", id))
+	err := row.Scan(&task.Id, &task.Date, &task.Title, &task.Comment, &task.Repeat)
+	if err != nil {
+		return task, errors.New("задача с таким id не найдена")
+	}
+	return task, nil
+}
+func UpdateTask(id int, date string, title string, comment string, repeat string) error {
+	_, err := DB.Exec("UPDATE scheduler SET date=:date, title=:title, comment=:comment, repeat=:repeat WHERE id=:id",
+		sql.Named("id", id),
+		sql.Named("date", date),
+		sql.Named("title", title),
+		sql.Named("comment", comment),
+		sql.Named("repeat", repeat))
+	if err != nil {
+		return errors.New("ошибка записи в БД")
+	}
+	return nil
+}
+
 func GetTasks() ([]Task, error) {
-	rows, err := DB.Query("SELECT id, date, title, comment, repeat FROM scheduler")
+	rows, err := DB.Query("SELECT id, date, title, comment, repeat FROM scheduler order by date limit 50")
 	if err != nil {
 		log.Println(err)
 		return nil, err
@@ -144,7 +166,6 @@ func GetTasks() ([]Task, error) {
 
 		err := rows.Scan(&task.Id, &task.Date, &task.Title, &task.Comment, &task.Repeat)
 		if err != nil {
-			log.Println(err)
 			return nil, err
 		}
 
@@ -152,7 +173,6 @@ func GetTasks() ([]Task, error) {
 	}
 
 	if err := rows.Err(); err != nil {
-		log.Println(err)
 		return nil, err
 	}
 	return tasks, nil
@@ -160,16 +180,46 @@ func GetTasks() ([]Task, error) {
 
 func getTasksHandler(w http.ResponseWriter, r *http.Request) {
 	tasks, err := GetTasks()
+
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, errorResponse(err.Error()), http.StatusInternalServerError)
 		return
 	}
-	fmt.Println(map[string]any{"tasks": tasks})
+
+	if tasks == nil {
+		tasks = make([]Task, 0)
+	}
+
 	resp, err := json.Marshal(map[string]any{"tasks": tasks})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, errorResponse(err.Error()), http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(resp)
+}
+
+func getTaskHandler(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+
+	taskId, err := strconv.Atoi(id)
+	if err != nil {
+		http.Error(w, errorResponse("неверный номер задачи"), http.StatusBadRequest)
+		return
+	}
+	task, err := GetTaskById(taskId)
+	if err != nil {
+		http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	resp, err := json.Marshal(task)
+	if err != nil {
+		http.Error(w, errorResponse(err.Error()), http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(resp)
@@ -209,6 +259,77 @@ func AddTaskHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
 		return
 	}
+	if task.Title == "" {
+		http.Error(w, errorResponse("название задачи обязательно для заполнения"), http.StatusBadRequest)
+		return
+	}
+
+	if task.Date == "" {
+		dateNow := time.Now()
+		task.Date = dateNow.Format("20060102")
+	} else {
+		dateNow, err := time.Parse("20060102", task.Date)
+		if err != nil {
+			http.Error(w, errorResponse("некорректный формат даты"), http.StatusBadRequest)
+			return
+		}
+		if dateNow.Format("20060102") < time.Now().Format("20060102") {
+			if task.Repeat == "" {
+				date := time.Now()
+				task.Date = date.Format("20060102")
+			} else {
+				date, err := NextDate(time.Now(), task.Date, task.Repeat)
+				if err != nil {
+					http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
+					return
+				}
+				task.Date = date
+			}
+		}
+	}
+	id, err := AddTask(task.Date, task.Title, task.Comment, task.Repeat)
+	if err != nil {
+		http.Error(w, errorResponse(err.Error()), http.StatusInternalServerError)
+		return
+	}
+	resp, err := json.Marshal(map[string]any{"id": id})
+	if err != nil {
+		http.Error(w, errorResponse(err.Error()), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write(resp)
+
+}
+
+func UpdateTaskHandler(w http.ResponseWriter, r *http.Request) {
+	var task Task
+	var buf bytes.Buffer
+
+	_, err := buf.ReadFrom(r.Body)
+	if err != nil {
+		http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if err = json.Unmarshal(buf.Bytes(), &task); err != nil {
+		http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
+		return
+	}
+
+	taskId, err := strconv.Atoi(task.Id)
+	if err != nil {
+		http.Error(w, errorResponse("неверный номер задачи"), http.StatusBadRequest)
+		return
+	}
+
+	_, err = GetTaskById(taskId)
+	if err != nil {
+		http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
+		return
+	}
 
 	if task.Title == "" {
 		http.Error(w, errorResponse("название задачи обязательно для заполнения"), http.StatusBadRequest)
@@ -238,31 +359,26 @@ func AddTaskHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	fmt.Println("таск дэйт", task.Date)
-	id, err := AddTask(task.Date, task.Title, task.Comment, task.Repeat)
+	err = UpdateTask(taskId, task.Date, task.Title, task.Comment, task.Repeat)
 	if err != nil {
-		http.Error(w, errorResponse(err.Error()), http.StatusInternalServerError)
-		return
-	}
-	resp, err := json.Marshal(map[string]any{"id": id})
-	if err != nil {
-		http.Error(w, errorResponse(err.Error()), http.StatusInternalServerError)
+		http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(http.StatusOK)
-	w.Write(resp)
-
+	w.Write([]byte("{}"))
 }
 
 func taskHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		getTasksHandler(w, r)
+		getTaskHandler(w, r)
 	case http.MethodPost:
 		AddTaskHandler(w, r)
 	case http.MethodDelete:
 		fmt.Fprintln(w, "DELETE запрос обработан")
+	case http.MethodPut:
+		UpdateTaskHandler(w, r)
 	default:
 		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
 	}
@@ -290,6 +406,7 @@ func main() {
 	http.Handle("/favicon.ico", http.FileServer(http.Dir(webDir)))
 	http.HandleFunc("/api/nextdate", nextDateHandler)
 	http.HandleFunc("/api/task", taskHandler)
+	http.HandleFunc("/api/tasks", getTasksHandler)
 
 	if value, exists := os.LookupEnv(key); exists {
 		if err := http.ListenAndServe(value, nil); err != nil {

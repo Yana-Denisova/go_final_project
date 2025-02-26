@@ -17,7 +17,7 @@ type Task struct {
 	Repeat  string `json:"repeat"`
 }
 
-func checkDatabse() {
+func checkDatabase() {
 
 	appPath, err := os.Getwd()
 	if err != nil {
@@ -83,7 +83,7 @@ func GetTaskById(id int) (Task, error) {
 	return task, nil
 }
 
-func DeteleTask(id int) error {
+func DeleteTask(id int) error {
 	_, err := DB.Exec("DELETE FROM scheduler WHERE id=:id", sql.Named("id", id))
 	if err != nil {
 		return errors.New("ошибка удаления из БД")

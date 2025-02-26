@@ -205,7 +205,7 @@ func DeleteTaskHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
 		return
 	}
-	err = DeteleTask(taskId)
+	err = DeleteTask(taskId)
 	if err != nil {
 		http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
 		return
@@ -244,7 +244,7 @@ func doneTaskHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if task.Repeat == "" {
-		err = DeteleTask(taskId)
+		err = DeleteTask(taskId)
 		if err != nil {
 			http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
 			return

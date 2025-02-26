@@ -12,9 +12,10 @@ import (
 var key = "TODO_PORT"
 var webDir = "./web"
 var DB *sql.DB
+var port = ":7540"
 
 func main() {
-	checkDatabse()
+	checkDatabase()
 
 	db, err := sql.Open("sqlite", "scheduler.db")
 	if err != nil {
@@ -34,14 +35,11 @@ func main() {
 	http.HandleFunc("/api/tasks", getTasksHandler)
 
 	if value, exists := os.LookupEnv(key); exists {
-		if err := http.ListenAndServe(value, nil); err != nil {
-			fmt.Printf("ошибка запуска сервера: %s\n", err.Error())
-			return
-		}
-	} else {
-		if err := http.ListenAndServe(":7540", nil); err != nil {
-			fmt.Printf("ошибка запуска сервера: %s\n", err.Error())
-			return
-		}
+		port = ":" + value
+	}
+	fmt.Println("Server started on port", port)
+	if err := http.ListenAndServe(port, nil); err != nil {
+		fmt.Printf("ошибка запуска сервера: %s\n", err.Error())
+		return
 	}
 }

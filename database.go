@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -64,7 +63,7 @@ func AddTask(date string, title string, comment string, repeat string) (int64, e
 		sql.Named("comment", comment),
 		sql.Named("repeat", repeat))
 	if err != nil {
-		return 0, errors.New("ошибка записи в БД")
+		return 0, fmt.Errorf("ошибка при записи в бд: %w", err)
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
@@ -78,7 +77,7 @@ func GetTaskById(id int) (Task, error) {
 	row := DB.QueryRow("SELECT id, date, title, comment, repeat FROM scheduler WHERE id = :id", sql.Named("id", id))
 	err := row.Scan(&task.Id, &task.Date, &task.Title, &task.Comment, &task.Repeat)
 	if err != nil {
-		return task, errors.New("задача с таким id не найдена")
+		return task, fmt.Errorf("задача с таким id не найдена: %w", err)
 	}
 	return task, nil
 }
@@ -86,7 +85,7 @@ func GetTaskById(id int) (Task, error) {
 func DeleteTask(id int) error {
 	_, err := DB.Exec("DELETE FROM scheduler WHERE id=:id", sql.Named("id", id))
 	if err != nil {
-		return errors.New("ошибка удаления из БД")
+		return fmt.Errorf("ошибка удаления из БД: %w", err)
 	}
 	return nil
 }
@@ -99,7 +98,7 @@ func UpdateTask(id int, date string, title string, comment string, repeat string
 		sql.Named("comment", comment),
 		sql.Named("repeat", repeat))
 	if err != nil {
-		return errors.New("ошибка записи в БД")
+		return fmt.Errorf("ошибка обновления записи в БД: %w", err)
 	}
 	return nil
 }
@@ -107,8 +106,7 @@ func UpdateTask(id int, date string, title string, comment string, repeat string
 func GetTasks() ([]Task, error) {
 	rows, err := DB.Query("SELECT id, date, title, comment, repeat FROM scheduler order by date limit 50")
 	if err != nil {
-		log.Println(err)
-		return nil, err
+		return nil, fmt.Errorf("ошибка получения записией из БД: %w", err)
 	}
 	defer rows.Close()
 
@@ -118,14 +116,14 @@ func GetTasks() ([]Task, error) {
 
 		err := rows.Scan(&task.Id, &task.Date, &task.Title, &task.Comment, &task.Repeat)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("ошибка в rows.Scan: %w", err)
 		}
 
 		tasks = append(tasks, task)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ошибка в rows: %w", err)
 	}
 	return tasks, nil
 }

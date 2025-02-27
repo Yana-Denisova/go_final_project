@@ -13,7 +13,7 @@ func getTasksHandler(w http.ResponseWriter, r *http.Request) {
 	tasks, err := GetTasks()
 
 	if err != nil {
-		http.Error(w, errorResponse(err.Error()), http.StatusInternalServerError)
+		http.Error(w, errorResponse(fmt.Errorf("ошибка при получении задач: %w", err).Error()), http.StatusInternalServerError)
 		return
 	}
 
@@ -23,7 +23,7 @@ func getTasksHandler(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := json.Marshal(map[string]any{"tasks": tasks})
 	if err != nil {
-		http.Error(w, errorResponse(err.Error()), http.StatusInternalServerError)
+		http.Error(w, errorResponse(fmt.Errorf("ошибка при сериализации данных: %w", err).Error()), http.StatusInternalServerError)
 		return
 	}
 	successResponse(resp, w)
@@ -39,13 +39,13 @@ func getTaskHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	task, err := GetTaskById(taskId)
 	if err != nil {
-		http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
+		http.Error(w, errorResponse(fmt.Errorf("ошибка при получении задачи по id: %w", err).Error()), http.StatusBadRequest)
 		return
 	}
 
 	resp, err := json.Marshal(task)
 	if err != nil {
-		http.Error(w, errorResponse(err.Error()), http.StatusInternalServerError)
+		http.Error(w, errorResponse(fmt.Errorf("ошибка при сериализации данных: %w", err).Error()), http.StatusInternalServerError)
 		return
 	}
 
@@ -56,14 +56,14 @@ func nextDateHandler(w http.ResponseWriter, r *http.Request) {
 	now := r.FormValue("now")
 	timeNow, err := time.Parse("20060102", now)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, fmt.Errorf("ошибка парсинга даты time.Parse: %w", err).Error(), http.StatusBadRequest)
 		return
 	}
 	date := r.FormValue("date")
 	repeat := r.FormValue("repeat")
 	text, err := NextDate(timeNow, date, repeat)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, fmt.Errorf("ошибка при получании следующей даты NextDate: %w", err).Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -77,13 +77,13 @@ func AddTaskHandler(w http.ResponseWriter, r *http.Request) {
 
 	_, err := buf.ReadFrom(r.Body)
 	if err != nil {
-		http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
+		http.Error(w, errorResponse(fmt.Errorf("ошибка в buf.ReadFrom: %w", err).Error()), http.StatusBadRequest)
 		return
 	}
 	defer r.Body.Close()
 
 	if err = json.Unmarshal(buf.Bytes(), &task); err != nil {
-		http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
+		http.Error(w, errorResponse(fmt.Errorf("ошибка при десериализации данных: %w", err).Error()), http.StatusBadRequest)
 		return
 	}
 	if task.Title == "" {
@@ -97,7 +97,7 @@ func AddTaskHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		dateNow, err := time.Parse("20060102", task.Date)
 		if err != nil {
-			http.Error(w, errorResponse("некорректный формат даты"), http.StatusBadRequest)
+			http.Error(w, errorResponse(fmt.Errorf("некорректный формат даты: %w", err).Error()), http.StatusBadRequest)
 			return
 		}
 		if dateNow.Format("20060102") < time.Now().Format("20060102") {
@@ -107,7 +107,7 @@ func AddTaskHandler(w http.ResponseWriter, r *http.Request) {
 			} else {
 				date, err := NextDate(time.Now(), task.Date, task.Repeat)
 				if err != nil {
-					http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
+					http.Error(w, errorResponse(fmt.Errorf("ошибка при получании следующей даты NextDate: %w", err).Error()), http.StatusBadRequest)
 					return
 				}
 				task.Date = date
@@ -116,12 +116,12 @@ func AddTaskHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := AddTask(task.Date, task.Title, task.Comment, task.Repeat)
 	if err != nil {
-		http.Error(w, errorResponse(err.Error()), http.StatusInternalServerError)
+		http.Error(w, errorResponse(fmt.Errorf("ошибка при добавлении задачи: %w", err).Error()), http.StatusInternalServerError)
 		return
 	}
 	resp, err := json.Marshal(map[string]any{"id": id})
 	if err != nil {
-		http.Error(w, errorResponse(err.Error()), http.StatusInternalServerError)
+		http.Error(w, errorResponse(fmt.Errorf("ошибка при сериализации данных: %w", err).Error()), http.StatusInternalServerError)
 		return
 	}
 	successResponse(resp, w)
@@ -134,25 +134,25 @@ func UpdateTaskHandler(w http.ResponseWriter, r *http.Request) {
 
 	_, err := buf.ReadFrom(r.Body)
 	if err != nil {
-		http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
+		http.Error(w, errorResponse(fmt.Errorf("ошибка в buf.ReadFrom: %w", err).Error()), http.StatusBadRequest)
 		return
 	}
 	defer r.Body.Close()
 
 	if err = json.Unmarshal(buf.Bytes(), &task); err != nil {
-		http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
+		http.Error(w, errorResponse(fmt.Errorf("ошибка при десериализации: %w", err).Error()), http.StatusBadRequest)
 		return
 	}
 
 	taskId, err := strconv.Atoi(task.Id)
 	if err != nil {
-		http.Error(w, errorResponse("неверный номер задачи"), http.StatusBadRequest)
+		http.Error(w, errorResponse(fmt.Errorf("неверный номер задачи: %w", err).Error()), http.StatusBadRequest)
 		return
 	}
 
 	_, err = GetTaskById(taskId)
 	if err != nil {
-		http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
+		http.Error(w, errorResponse(fmt.Errorf("ошибка при получении задачи по id: %w", err).Error()), http.StatusBadRequest)
 		return
 	}
 
@@ -167,7 +167,7 @@ func UpdateTaskHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		dateNow, err := time.Parse("20060102", task.Date)
 		if err != nil {
-			http.Error(w, errorResponse("некорректный формат даты"), http.StatusBadRequest)
+			http.Error(w, errorResponse(fmt.Errorf("некорректный формат даты: %w", err).Error()), http.StatusBadRequest)
 			return
 		}
 		if dateNow.Format("20060102") < time.Now().Format("20060102") {
@@ -177,7 +177,7 @@ func UpdateTaskHandler(w http.ResponseWriter, r *http.Request) {
 			} else {
 				date, err := NextDate(time.Now(), task.Date, task.Repeat)
 				if err != nil {
-					http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
+					http.Error(w, errorResponse(fmt.Errorf("ошибка при получании следующей даты NextDate: %w", err).Error()), http.StatusBadRequest)
 					return
 				}
 				task.Date = date
@@ -186,7 +186,7 @@ func UpdateTaskHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	err = UpdateTask(taskId, task.Date, task.Title, task.Comment, task.Repeat)
 	if err != nil {
-		http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
+		http.Error(w, errorResponse(fmt.Errorf("ошибка при получании обновлении задачи: %w", err).Error()), http.StatusBadRequest)
 		return
 	}
 	successResponse([]byte("{}"), w)
@@ -197,17 +197,17 @@ func DeleteTaskHandler(w http.ResponseWriter, r *http.Request) {
 
 	taskId, err := strconv.Atoi(id)
 	if err != nil {
-		http.Error(w, errorResponse("неверный номер задачи"), http.StatusBadRequest)
+		http.Error(w, errorResponse(fmt.Errorf("неверный номер задачи: %w", err).Error()), http.StatusBadRequest)
 		return
 	}
 	_, err = GetTaskById(taskId)
 	if err != nil {
-		http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
+		http.Error(w, errorResponse(fmt.Errorf("ошибка при получении задачи по id: %w", err).Error()), http.StatusBadRequest)
 		return
 	}
 	err = DeleteTask(taskId)
 	if err != nil {
-		http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
+		http.Error(w, errorResponse(fmt.Errorf("ошибка при удалении задачи: %w", err).Error()), http.StatusBadRequest)
 		return
 	}
 	successResponse([]byte("{}"), w)
@@ -233,20 +233,20 @@ func doneTaskHandler(w http.ResponseWriter, r *http.Request) {
 
 	taskId, err := strconv.Atoi(id)
 	if err != nil {
-		http.Error(w, errorResponse("неверный номер задачи"), http.StatusBadRequest)
+		http.Error(w, errorResponse(fmt.Errorf("неверный номер задачи: %w", err).Error()), http.StatusBadRequest)
 		return
 	}
 
 	task, err := GetTaskById(taskId)
 	if err != nil {
-		http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
+		http.Error(w, errorResponse(fmt.Errorf("ошибка при получении задачи по id: %w", err).Error()), http.StatusBadRequest)
 		return
 	}
 
 	if task.Repeat == "" {
 		err = DeleteTask(taskId)
 		if err != nil {
-			http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
+			http.Error(w, errorResponse(fmt.Errorf("ошибка при удалении задачи: %w", err).Error()), http.StatusBadRequest)
 			return
 		}
 		successResponse([]byte("{}"), w)
@@ -255,13 +255,13 @@ func doneTaskHandler(w http.ResponseWriter, r *http.Request) {
 
 	newDate, err := NextDate(time.Now(), task.Date, task.Repeat)
 	if err != nil {
-		http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
+		http.Error(w, errorResponse(fmt.Errorf("ошибка при получании следующей даты NextDate: %w", err).Error()), http.StatusBadRequest)
 		return
 	}
 
 	err = UpdateTask(taskId, newDate, task.Title, task.Comment, task.Repeat)
 	if err != nil {
-		http.Error(w, errorResponse(err.Error()), http.StatusBadRequest)
+		http.Error(w, errorResponse(fmt.Errorf("ошибка при обновлении задачи: %w", err).Error()), http.StatusBadRequest)
 		return
 	}
 	successResponse([]byte("{}"), w)
